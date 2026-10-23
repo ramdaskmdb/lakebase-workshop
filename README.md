@@ -21,8 +21,16 @@ The setup script will walk you through everything: installing dependencies, conn
 ##### Deploy the Lab Console (facilitator only)
 
 The Lab Console is a **shared app** — the facilitator deploys it once and all
-participants use it. During `setup.sh`, choose **option 2 (Labs + App)** to deploy
-everything including the app.
+participants use it. During `setup.sh`, facilitators choose **option 2 (Labs + App)** to deploy everything. Participants use **option 1)**
+
+```
+▸ Deploy to workspace
+  What would you like to deploy?
+
+    1) Labs only      — notebooks and lab files (no app compute)
+    2) Labs + App     — everything, including the shared Lab Console app
+```
+
 
 The setup script will also:
 - **Ensure your Lakebase project exists** — if you haven't already run the setup
@@ -139,7 +147,7 @@ Participants can delete their projects by uncommenting the cleanup cell at the b
 ```
 from databricks.sdk import WorkspaceClient
 w = WorkspaceClient()
-w.postgres.delete_project(name="projects/lakebase-lab-<username>")
+w.postgres.delete_project(name="projects/lakebase-lab-<username>", purge = True)
 
 # Delete the app (this also stops it if running)
 w.apps.delete(name="lakebase-lab-console")
