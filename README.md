@@ -133,6 +133,19 @@ The setup notebook (Step 2 above) automatically grants the app access to your da
 | `function databricks_create_role(...) does not exist` | The `databricks_auth` extension isn't installed in your Postgres database. Run `CREATE EXTENSION IF NOT EXISTS databricks_auth;` once per database — the setup notebook now does this automatically in Step 6. |
 | Deploying the app errors with "No endpoints" before running the setup notebook | Re-run `bash setup.sh` and choose **option 2** — the script auto-creates your Lakebase project before deploying the app. If auto-create fails, run `00_Setup_Lakebase_Project` and re-run setup. |
 
+
+## Cleanup
+Participants can delete their projects by uncommenting the cleanup cell at the bottom of the foundation notebook, or by running:
+```
+from databricks.sdk import WorkspaceClient
+w = WorkspaceClient()
+w.postgres.delete_project(name="projects/lakebase-lab-<username>")
+
+# Delete the app (this also stops it if running)
+w.apps.delete(name="lakebase-lab-console")
+print("App 'lakebase-lab-console' deleted successfully.")
+```
+
 ## Resources
 
 **Start here (canonical Lakebase docs):**
