@@ -28,7 +28,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "databricks-feature-engineering>=0.13.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" --quiet
+# MAGIC %pip install "databricks-feature-engineering>=0.13.0" "psycopg[binary]>=3.0" "protobuf>=6.31.1,<7" --quiet
 
 # COMMAND ----------
 

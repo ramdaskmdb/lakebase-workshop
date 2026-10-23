@@ -2,7 +2,6 @@
 
 A hands-on workshop for exploring **Databricks Lakebase** -- a fully managed PostgreSQL database that runs inside your Databricks workspace.
 
-> **It's all one Lakebase now.** Databricks has unified its managed Postgres under a single **Lakebase** offering (the earlier "Provisioned" instances were upgraded to the unified platform by Jul 31, 2026). You'll still see **"Autoscaling"** in doc URLs and the SDK (`w.postgres.*`, the `oltp/projects` surface) — that's the API surface this workshop is built on.
 
 ## Quick Start
 
@@ -18,11 +17,53 @@ bash setup.sh
 
 The setup script will walk you through everything: installing dependencies, connecting to your Databricks workspace, and deploying the workshop content. Just follow the prompts.
 
+
+##### Deploy the Lab Console (facilitator only)
+
+The Lab Console is a **shared app** — the facilitator deploys it once and all
+participants use it. During `setup.sh`, choose **option 2 (Labs + App)** to deploy
+everything including the app.
+
+The setup script will also:
+- **Ensure your Lakebase project exists** — if you haven't already run the setup
+  notebook, it auto-creates the project + seed schema (~2–3 min). If that fails,
+  it prints the path to `00_Setup_Lakebase_Project` so you can run it and re-run
+  `setup.sh`.
+- **Attach a postgres resource** to the app (your Lakebase project), giving the SP the `postgres` OAuth scope
+- **Grant the SP access** to your schema so the app can connect to your project
+
+To deploy manually:
+
+```bash
+# Build the frontend
+cd apps/lakebase-lab-console/frontend
+npm install && npm run build
+cd ../../..
+
+# Deploy the bundle + start the app
+databricks bundle deploy --target dev --profile lakebase-workshop
+databricks bundle run lakebase_lab_console --target dev --profile lakebase-workshop
+```
+
+The app is named `lakebase-lab-console` and is accessible to all workspace users
+at **Compute → Apps → lakebase-lab-console**.
+
+> **The frontend build is not optional.** `frontend/dist/` is gitignored, so a fresh
+> clone contains no UI. Skipping `npm run build` (or deploying from a machine without
+> Node.js) produces an app that starts and reports healthy but serves no interface.
+> Confirm the build landed with `curl <app-url>/api/health` — `frontend_built` must be
+> `true`.
+
+> **Per-user SP grant required.** Each participant must grant the app's Service
+> Principal access to their Lakebase project. This happens automatically in Step 6
+> of `00_Setup_Lakebase_Project`, or can be done from the App Deployment lab.
+
+
 ### Step 2: Run the setup notebook
 
-In your Databricks workspace, open the **`00_Setup_Lakebase_Project`** notebook and click **Run All**.
+In your Databricks workspace, Each participant opens the **`00_Setup_Lakebase_Project`** notebook and click **Run All**.
 
-This creates your personal Lakebase database and loads sample data. It takes about 2-3 minutes.
+This creates your personal Lakebase database (`lakebase-lab-<username>`) and loads sample data, seeds a per-user schema (`lakebase_lab_<username>`), and grants the Lab Console app's SP access to their project It takes about 2-3 minutes. 
 
 You can find the notebook at:
 **Workspace > Users > *your email* > .bundle > lakebase-workshop > dev > files > notebooks**
@@ -30,6 +71,33 @@ You can find the notebook at:
 ### Step 3: Start exploring
 
 You're all set. Pick any lab from the list below and dive in. Each lab is self-contained -- no need to follow a specific order.
+
+
+### All Labs Reference
+
+Every lab lives directly in `labs/`. No track folder structure — tracks are a facilitation guide, not a file hierarchy. Almost every folder has one notebook; **`development-experience/`** is the exception (three notebooks). 
+
+| Lab | Location | What It Covers | Time |
+|-----|----------|----------------|------|
+|**Introduction**
+| What is Lakebase?  | Slides + foundation |Architecture overview| 30 mins |
+|**Fundamentals**
+| Data Operations | `labs/data-operations/` | CRUD, JSONB, arrays, triggers, transactions | 20 mins |
+| Development Experience | `labs/development-experience/` | Branching, autoscaling, scale-to-zero, high availability + read replicas | 40 mins |
+| Authentication, Security & Compliance | `labs/authentication/` | OAuth tokens, roles, encryption/CMK, Private Link, compliance | 20 mins |
+| Backup & Recovery | `labs/backup-recovery/` | Checkpoint branches, snapshots, PITR, restore, cross-region DR note | 20 mins |
+| Observability | `labs/observability/` | pg_stat views, index analysis, monitoring | 20 mins |
+| Reverse ETL | `labs/reverse-etl/` | Synced tables from Delta Lake | 20 mins |
+| Unity Catalog Access | `labs/unity-catalog-access/` | Federated read-only UC catalog over Postgres | 20 mins |
+| Lakehouse Sync *(Public Preview)* | `labs/lakehouse-sync/` | Lakebase → Unity Catalog Delta via Lakebase Change Data Feed (UI-configured) | 20 mins |
+| Data API | `labs/data-api/` | PostgREST REST access, `authenticator` role, OAuth bearer, RLS | 30 mins |
+| **Advanced**
+| Agentic Memory | `labs/agentic-memory/` | Persistent agent memory pattern | 30 mins |
+| Lakebase Search *(Beta)* | `labs/lakebase-search/` | Vector + BM25 + hybrid RRF search (enablement irreversible) | 30 mins |
+| Online Feature Store | `labs/online-feature-store/` | Real-time ML feature serving with Lakebase | 30 mins |
+| App Deployment | `labs/app-deployment/` | Full-stack Lab Console app (capstone) | 30 mins |
+
+
 
 ## Prerequisites
 
@@ -40,53 +108,13 @@ Before you begin, make sure you have:
 - **Databricks CLI ≥ 0.294.0**, logged in via `databricks auth login` (do this ahead of time)
 - **Node.js 18+** — only needed if you deploy the **Lab Console app**. `setup.sh` installs it for you (Homebrew, nvm, or apt) when you choose option 2. You can also install it ahead of time (`node --version`). Not needed for the notebook labs.
 
-Share this with participants ahead of time: **[Prerequisites Guide](docs/PREREQUISITES.md)** (GitHub access, bring-your-own workspace, and auth login).
-
-On workshop day, `setup.sh` installs the remaining Python packages into your active environment (no separate venv required). If you deploy the Lab Console app, it also installs Node.js when it is missing.
-
-## Choose a Lab
-
-Every lab is independent. Pick whichever sounds interesting, or follow one of the suggested tracks below.
-
-### Application Builders
-
-*Building apps, APIs, or AI agents? Start here.*
-
-| Lab | What You'll Do |
-|-----|----------------|
-| **Data Operations** | Create, read, update, and delete data; work with JSON and arrays |
-| **Data API** | Call Lakebase over REST (PostgREST) with an OAuth bearer token and row-level security |
-| **Agentic Memory** | Store and query AI agent conversation history |
-| **Lakebase Search** *(Beta)* | Add vector + keyword (BM25) search and hybrid ranking to your data |
-| **App Deployment** *(capstone)* | Deploy a full-stack web app backed by Lakebase |
-
-### Data & ML Engineers
-
-*Working with data pipelines or machine learning? Start here.*
-
-| Lab | What You'll Do |
-|-----|----------------|
-| **Reverse ETL** | Sync your Delta Lake tables into Lakebase for fast lookups |
-| **Unity Catalog Access** | Register Postgres as a federated read-only UC catalog for Lakehouse SQL |
-| **Lakehouse Sync** *(Public Preview)* | Sync Lakebase back to the lakehouse as Delta with full CDC change history |
-| **Online Feature Store** | Serve ML features in real time from Lakebase |
-
-### Platform Architects
-
-*Evaluating Lakebase for your infrastructure? Start here.*
-
-| Lab | What You'll Do |
-|-----|----------------|
-| **Development Experience** | Create isolated database branches, test autoscaling, and explore high availability + read replicas |
-| **Authentication, Security & Compliance** | Explore token-based auth, role permissions, encryption/CMK, Private Link, and compliance profiles |
-| **Backup & Recovery** | Try checkpoint branches, snapshots, and point-in-time restore |
-| **Observability** | Monitor database performance, indexes, and query activity |
+Check **[Prerequisites Guide](docs/PREREQUISITES.md)** (GitHub access, bring-your-own workspace, and auth login).
 
 All labs are in the `labs/` folder, organized by topic.
 
 ## Lab Console App
 
-Your facilitator may have deployed a shared **Lab Console** web app. This app mirrors all the labs in a visual interface -- you can use it alongside (or instead of) the notebooks.
+If you deployed a shared **Lab Console** web app during setup.sh. This app mirrors all the labs in a visual interface -- you can use it alongside (or instead of) the notebooks.
 
 Open it at: **Compute > Apps > lakebase-lab-console**
 
@@ -124,10 +152,6 @@ The setup notebook (Step 2 above) automatically grants the app access to your da
 **Reference:**
 - [Databricks Apps documentation](https://docs.databricks.com/en/dev-tools/databricks-apps/)
 - [PostgreSQL documentation](https://www.postgresql.org/docs/)
-
-## For Facilitators
-
-If you're running this workshop for a group, see the [Facilitator Guide](docs/WORKSHOP_FACILITATOR.md) for deployment instructions, timing options, demo scripts, and detailed troubleshooting.
 
 ## License
 

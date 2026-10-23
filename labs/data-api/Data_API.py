@@ -40,7 +40,7 @@
 
 # COMMAND ----------
 
-# MAGIC %pip install "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "requests>=2.31" "protobuf>=5.29.5,<6" --quiet
+# MAGIC %pip install "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "requests>=2.31" "protobuf>=6.31.1,<7" --quiet
 
 # COMMAND ----------
 
@@ -135,6 +135,8 @@ run("SELECT id, name, email, company FROM api_clients ORDER BY id;", label="api_
 # MAGIC `w.postgres.create_data_api()` enables the API on one **database** of a branch and reports the
 # MAGIC URL, so nothing has to be copied out of the UI. We enable it on `databricks_postgres` and expose
 # MAGIC only your own schema — never `public` on a shared project.
+# MAGIC
+# MAGIC ** make sure you expose the necessary schema in the Data API UI (settings tab). Like lakebase_lab_<user> **
 # MAGIC
 # MAGIC If `enable_data_api` is `no` (the default), this cell just reports the current state.
 # MAGIC
@@ -275,10 +277,22 @@ print("Note: table owners bypass RLS. Use FORCE ROW LEVEL SECURITY to apply it t
 
 import requests
 
+# An OAuth client for the non-owner service principal (OAuth M2M). The notebook's own `w`
+# uses runtime auth, which cannot mint OAuth tokens. Store the SP's OAuth secret in a
+# secret scope first and replace the placeholders below.
+#databricks --profile <yourprofile> secrets create-scope lakebase
+#databricks --profile <yourprofile> secrets put-secret lakebase sp-client-id --string-value <YOUR_CLIENT_ID>
+#databricks --profile <yourprofile> secrets put-secret lakebase sp-client-secret --string-value <YOUR_CLIENT_SECRET>
+
+sp_w = WorkspaceClient(
+    host=w.config.host,
+    client_id=dbutils.secrets.get(scope="lakebase", key="sp-client-id"),
+    client_secret=dbutils.secrets.get(scope="lakebase", key="sp-client-secret"),
+)
 
 def owner_call():
     """The direct call, as the owner. Expected to be rejected — that is the lesson."""
-    token = w.config.oauth_token().access_token
+    token = sp_w.config.oauth_token().access_token
     r = requests.get(
         f"{REST_ENDPOINT}/{PG_SCHEMA}/api_clients",
         params={"select": "id,name,company", "id": "gte.2"},
@@ -289,8 +303,8 @@ def owner_call():
 
 def app_call(method="GET", resource="api_clients", query=None, body=None):
     """The same call through the Lab Console, which authenticates as its service principal."""
-    app_url = w.apps.get(name=APP_NAME).url.rstrip("/")
-    token = w.config.oauth_token().access_token
+    app_url = sp_w.apps.get(name=APP_NAME).url.rstrip("/")
+    token = sp_w.config.oauth_token().access_token
     r = requests.post(
         f"{app_url}/api/data-api/call",
         headers={"Authorization": f"Bearer {token}"},
@@ -312,6 +326,35 @@ else:
     status, text = app_call(query="select=id,name,company&id=gte.2")
     print(f"Same request via the Lab Console service principal -> {status}")
     print(f"  {text}")
+
+# COMMAND ----------
+
+# MAGIC %md
+# MAGIC ### Widen the policy for the service principal
+# MAGIC
+# MAGIC The `200 []` above is RLS working: every row's `owner` is your email, and the SP's `current_user`
+# MAGIC is its application ID, so `api_clients_owner` hides all three rows.
+# MAGIC
+# MAGIC Postgres combines **permissive** policies with `OR`, so instead of loosening `api_clients_owner`
+# MAGIC we add a second, narrowly scoped policy: **read-only** (`FOR SELECT`) and only for the SP's role
+# MAGIC (`TO "<sp_app_id>"`). Inserts, updates, and deletes by the SP are still limited to rows it owns.
+
+# COMMAND ----------
+
+# A second permissive policy: the SP may read every row; writes still fall under api_clients_owner.
+run("DROP POLICY IF EXISTS api_clients_sp_read ON api_clients;", show=False)
+run(f'CREATE POLICY api_clients_sp_read ON api_clients FOR SELECT TO "{SP_APP_ID}" USING (true);',
+    show=False)
+run("""
+    SELECT polname, polcmd, pg_get_expr(polqual, polrelid) AS using_expr,
+           ARRAY(SELECT rolname FROM pg_roles WHERE oid = ANY(polroles)) AS roles
+    FROM pg_policy
+    WHERE polrelid = 'api_clients'::regclass;
+""", label="Policies on api_clients")
+
+status, text = sp_call(query="select=id,name,company&id=gte.2")
+print(f"\nSame request as the SP after widening -> {status}")
+print(f"  {text}")
 
 # COMMAND ----------
 
