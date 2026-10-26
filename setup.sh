@@ -137,46 +137,19 @@ banner
 
 step "Checking your environment"
 
-# Pick the first interpreter that actually runs. On Windows, `python3` is often
-# the Microsoft Store stub, so fall back to `python` / `py -3`.
-PY=""
-for c in python3 python "py -3"; do
-  if $c -c "import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)" &>/dev/null; then
-    PY="$c"
-    break
-  fi
-done
-if [[ -z "$PY" ]]; then
+if ! command -v python3 &>/dev/null; then
   fail "Python 3 is required but not installed. Install it from https://python.org"
 fi
-ok "Python $($PY --version 2>&1 | awk '{print $2}') ($($PY -c 'import sys; print(sys.executable)'))"
+ok "Python $(python3 --version 2>&1 | awk '{print $2}')"
 
-# Always install via the same interpreter we import with, so packages land
-# where $PY can find them.
-if ! $PY -m pip --version &>/dev/null; then
-  fail "pip is required but not installed for $PY."
+PIP_CMD="pip3"
+if ! command -v pip3 &>/dev/null; then
+  if command -v pip &>/dev/null; then
+    PIP_CMD="pip"
+  else
+    fail "pip is required but not installed."
+  fi
 fi
-PIP_CMD="$PY -m pip"
-
-# Windows Python defaults to cp1252 for piped stdout, which can't encode the
-# ✓/⚠ characters our inline scripts print. Force UTF-8.
-export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
-
-# Upgrade pip once before the first install — old pip versions can fail to find
-# prebuilt wheels (e.g. psycopg-binary), and pip <= 23.0 crashes on Python 3.12+
-# (pkgutil.ImpImporter) so it can't upgrade itself — ensurepip covers that case.
-# Going through `$PY -m pip` also avoids the Windows "To modify pip, please run
-# python -m pip" error. Never fatal.
-PIP_UPGRADED=""
-upgrade_pip() {
-  [[ -n "$PIP_UPGRADED" ]] && return 0
-  PIP_UPGRADED=1
-  info "Upgrading pip..."
-  $PIP_CMD install -q --disable-pip-version-check --upgrade pip 2>/dev/null \
-    || $PIP_CMD install -q --disable-pip-version-check --upgrade --break-system-packages pip 2>/dev/null \
-    || $PY -m ensurepip --upgrade &>/dev/null \
-    || warn "Could not upgrade pip — continuing with $($PIP_CMD --version 2>/dev/null | awk '{print $2}')."
-}
 
 # ─────────────────────────────────────────────────────────────────────────────
 # 2. Install requirements
@@ -191,16 +164,11 @@ INSTALL_DEPS="${INSTALL_DEPS:-Y}"
 
 if [[ "$INSTALL_DEPS" =~ ^[Yy] ]]; then
   echo ""
-  upgrade_pip
-  if ! $PIP_CMD install -q "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6"; then
+  if ! $PIP_CMD install -q "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" 2>/dev/null; then
     info "Retrying with --break-system-packages (PEP 668)..."
-    $PIP_CMD install -q --break-system-packages "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" || true
+    $PIP_CMD install -q --break-system-packages "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" 2>/dev/null || true
   fi
-  if $PY -c "import databricks.sdk, psycopg" &>/dev/null; then
-    ok "Python packages installed"
-  else
-    warn "Python packages did not install correctly — see the pip output above."
-  fi
+  ok "Python packages installed"
 else
   info "Skipping. Make sure you have the required packages installed."
 fi
@@ -260,7 +228,7 @@ if [[ -n "$EXISTING" ]]; then
 
   if [[ "$PROFILE_CHOICE" != "NEW" && "$PROFILE_CHOICE" != "new" && -n "$PROFILE_CHOICE" ]]; then
     PROFILE="$PROFILE_CHOICE"
-    WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | awk -v p="$PROFILE" '$1 == p {print $2; exit}')
+    WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | grep "$PROFILE" | awk '{print $2}')
   fi
 fi
 
@@ -292,13 +260,13 @@ if [[ "$PROFILE" == "lakebase-workshop" ]] || [[ "${PROFILE_CHOICE:-}" == "NEW" 
 fi
 
 # Validate
-VALID=$(databricks auth profiles 2>/dev/null | awk -v p="$PROFILE" '$1 == p && $NF == "YES"' | grep -c . || true)
+VALID=$(databricks auth profiles 2>/dev/null | grep "$PROFILE" | grep -c "YES" || true)
 if [[ "$VALID" -eq 0 ]]; then
   echo ""
   fail "Authentication failed for profile '$PROFILE'. Try running: databricks auth login --host <your-url> --profile $PROFILE"
 fi
 
-WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | awk -v p="$PROFILE" '$1 == p {print $2; exit}')
+WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | grep "$PROFILE" | awk '{print $2}')
 ok "Connected to $WORKSPACE_HOST"
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -339,7 +307,7 @@ fi
 DAB_YAML="$SCRIPT_DIR/databricks.yml"
 # Always rewrite target profiles (not a one-shot <your-profile> placeholder), so
 # the same clone can be reused across customer workspaces.
-$PY -c "
+python3 -c "
 import re
 path = '$DAB_YAML'
 profile = '''$PROFILE'''
@@ -351,10 +319,10 @@ open(path, 'w').write(content)
 ok "databricks.yml configured with profile: $PROFILE"
 
 USER_EMAIL=$(databricks current-user me --profile "$PROFILE" 2>/dev/null \
-  | $PY -c "import sys,json; print(json.load(sys.stdin)['userName'])" 2>/dev/null || echo "<your-email>")
+  | python3 -c "import sys,json; print(json.load(sys.stdin)['userName'])" 2>/dev/null || echo "<your-email>")
 
 # Derive the Lakebase project ID (for display only — the app resolves it dynamically)
-PROJECT_ID=$($PY -c "
+PROJECT_ID=$(python3 -c "
 import re
 email = '$USER_EMAIL'
 name = email.split('@')[0]
@@ -412,13 +380,12 @@ ensure_lakebase_project() {
   info "Creating it now (~2-3 min)..."
   echo ""
 
-  if ! $PY -c "import databricks.sdk, psycopg" &>/dev/null; then
+  if ! python3 -c "import databricks.sdk, psycopg" &>/dev/null; then
     info "Installing databricks-sdk + psycopg (needed to auto-create the project)..."
-    upgrade_pip
-    if ! $PIP_CMD install -q "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6"; then
-      $PIP_CMD install -q --break-system-packages "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" || true
+    if ! $PIP_CMD install -q "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" 2>/dev/null; then
+      $PIP_CMD install -q --break-system-packages "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" 2>/dev/null || true
     fi
-    if ! $PY -c "import databricks.sdk, psycopg" &>/dev/null; then
+    if ! python3 -c "import databricks.sdk, psycopg" &>/dev/null; then
       tell_run_setup_notebook
       fail "Could not install databricks-sdk + psycopg, so the project could not be created automatically."
     fi
@@ -426,7 +393,7 @@ ensure_lakebase_project() {
 
   info "Creating Lakebase project '$project_id' (1-3 min)..."
 
-  if $PY - "$project_id" "$schema" "$profile" "$SCRIPT_DIR" <<'PYEOF'
+  if python3 - "$project_id" "$schema" "$profile" "$SCRIPT_DIR" <<'PYEOF'
 import os
 import sys
 import time
@@ -524,7 +491,7 @@ read -r DEPLOY_CHOICE
 DEPLOY_CHOICE="${DEPLOY_CHOICE:-1}"
 
 if [[ "$DEPLOY_CHOICE" == "2" ]]; then
-  PG_SCHEMA=$($PY -c "
+  PG_SCHEMA=$(python3 -c "
 import re
 email = '$USER_EMAIL'
 name = email.split('@')[0]
@@ -620,7 +587,7 @@ reattach_lakebase_resource() {
 
   # Look up the database resource path (the API uses generated IDs, not the PG database name)
   DB_PATH=$(databricks postgres list-databases "$BRANCH_PATH" --profile "$profile" -o json 2>/dev/null \
-    | $PY -c "
+    | python3 -c "
 import sys, json
 for db in json.load(sys.stdin):
     if db.get('status', {}).get('postgres_database') == 'databricks_postgres':
@@ -635,7 +602,7 @@ for db in json.load(sys.stdin):
   fi
   info "Database path: $DB_PATH"
 
-  PAYLOAD=$($PY -c "
+  PAYLOAD=$(python3 -c "
 import json
 print(json.dumps({
     'app': {
@@ -675,20 +642,19 @@ grant_sp_access() {
 
   step "Granting SP access to facilitator's Lakebase project"
 
-  if ! $PY -c "import databricks.sdk" &>/dev/null; then
+  if ! python3 -c "import databricks.sdk" &>/dev/null; then
     warn "databricks-sdk not found in local Python — installing..."
-    upgrade_pip
-    if ! $PIP_CMD install -q "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6"; then
-      $PIP_CMD install -q --break-system-packages "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" || true
+    if ! $PIP_CMD install -q "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" 2>/dev/null; then
+      $PIP_CMD install -q --break-system-packages "databricks-sdk>=0.81.0" "psycopg[binary]>=3.0" "protobuf>=5.29.5,<6" 2>/dev/null || true
     fi
-    if ! $PY -c "import databricks.sdk" &>/dev/null; then
+    if ! python3 -c "import databricks.sdk" &>/dev/null; then
       warn "Could not install databricks-sdk. SP grants will be handled"
       info "automatically when each user runs 00_Setup_Lakebase_Project (Step 6)."
       return 1
     fi
   fi
 
-  $PY - "$project_id" "$schema" "$profile" <<'PYEOF'
+  python3 - "$project_id" "$schema" "$profile" <<'PYEOF'
 import sys
 
 project_id = sys.argv[1]
