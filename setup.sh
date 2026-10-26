@@ -158,6 +158,10 @@ if ! $PY -m pip --version &>/dev/null; then
 fi
 PIP_CMD="$PY -m pip"
 
+# Windows Python defaults to cp1252 for piped stdout, which can't encode the
+# ✓/⚠ characters our inline scripts print. Force UTF-8.
+export PYTHONUTF8=1 PYTHONIOENCODING=utf-8
+
 # Upgrade pip once before the first install — old pip versions can fail to find
 # prebuilt wheels (e.g. psycopg-binary), and pip <= 23.0 crashes on Python 3.12+
 # (pkgutil.ImpImporter) so it can't upgrade itself — ensurepip covers that case.
@@ -256,7 +260,7 @@ if [[ -n "$EXISTING" ]]; then
 
   if [[ "$PROFILE_CHOICE" != "NEW" && "$PROFILE_CHOICE" != "new" && -n "$PROFILE_CHOICE" ]]; then
     PROFILE="$PROFILE_CHOICE"
-    WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | grep "$PROFILE" | awk '{print $2}')
+    WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | awk -v p="$PROFILE" '$1 == p {print $2; exit}')
   fi
 fi
 
@@ -288,13 +292,13 @@ if [[ "$PROFILE" == "lakebase-workshop" ]] || [[ "${PROFILE_CHOICE:-}" == "NEW" 
 fi
 
 # Validate
-VALID=$(databricks auth profiles 2>/dev/null | grep "$PROFILE" | grep -c "YES" || true)
+VALID=$(databricks auth profiles 2>/dev/null | awk -v p="$PROFILE" '$1 == p && $NF == "YES"' | grep -c . || true)
 if [[ "$VALID" -eq 0 ]]; then
   echo ""
   fail "Authentication failed for profile '$PROFILE'. Try running: databricks auth login --host <your-url> --profile $PROFILE"
 fi
 
-WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | grep "$PROFILE" | awk '{print $2}')
+WORKSPACE_HOST=$(databricks auth profiles 2>/dev/null | awk -v p="$PROFILE" '$1 == p {print $2; exit}')
 ok "Connected to $WORKSPACE_HOST"
 
 # ─────────────────────────────────────────────────────────────────────────────
