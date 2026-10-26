@@ -64,3 +64,4 @@ docs/one-pager.pdf
 docs/CREDITS.md
 .isaac/
 .vscode/
+apps/lakebase-lab-console/frontend/node_modules/*

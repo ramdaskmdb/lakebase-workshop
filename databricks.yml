@@ -38,10 +38,12 @@ targets:
   dev:
     default: true
     mode: development
+    presets:
+      source_linked_deployment: false      
     workspace:
-      profile: azure-lakebase
+      profile: ramdas
 
   workshop:
     mode: production
     workspace:
-      profile: azure-lakebase
+      profile: ramdas
