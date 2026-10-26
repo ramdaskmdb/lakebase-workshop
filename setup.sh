@@ -513,8 +513,12 @@ print(f'lakebase_lab_{name.replace(\"-\", \"_\")}')
     if command -v npm >/dev/null 2>&1; then
       info "Building frontend (this takes ~30s)..."
       BUILD_LOG="$(mktemp -t lakebase-frontend-build.XXXXXX)"
-      if (cd "$FRONTEND_DIR" && npm install --silent && npm run build --silent) \
-           >"$BUILD_LOG" 2>&1 && [[ -f "$FRONTEND_DIR/dist/index.html" ]]; then
+      if (cd "$FRONTEND_DIR" \
+            && npm install --no-audit --no-fund \
+                 --fetch-timeout=60000 --fetch-retries=2 \
+            && npm run build) \
+           >"$BUILD_LOG" 2>&1 \
+         && [[ -f "$FRONTEND_DIR/dist/index.html" ]]; then
         FRONTEND_BUILT=true
         rm -f "$BUILD_LOG"
         ok "Frontend built"
@@ -534,20 +538,29 @@ print(f'lakebase_lab_{name.replace(\"-\", \"_\")}')
 
   if [[ "$FRONTEND_BUILT" != true ]]; then
     echo ""
-    warn "Deploying the app now would give you a working API with no user interface —"
-    warn "opening it in a browser shows a 'UI not built' page instead of the console."
+    warn "Deploying the app now would give you a working API with no"
+    warn "user interface — opening it in a browser shows a 'UI not built'"
+    warn "page instead of the console."
     info "The notebook labs do not use the app, so they are unaffected."
     echo ""
     ask "Deploy the app anyway, without its UI? (y/N):"
     read -r DEPLOY_WITHOUT_UI
     if [[ ! "${DEPLOY_WITHOUT_UI:-N}" =~ ^[Yy] ]]; then
       info "Skipping the app — deploying the labs only."
-      info "After installing Node.js, get the app with:"
+      info "Fix the issue above, then get the app with:"
       info "  bash setup.sh   (choose option 2)"
       DEPLOY_CHOICE=1
     fi
   fi
+
+  # Workspace folders (web terminal): the Apps export fails on
+  # node_modules/.bin symlinks, and only dist/ is needed at runtime.
+  if [[ "$SCRIPT_DIR" == /Workspace/* ]]; then
+    rm -rf "$FRONTEND_DIR/node_modules"
+  fi
 fi
+
+
 
 info "Deploying bundle..."
 if databricks bundle deploy --target dev --profile "$PROFILE"; then
