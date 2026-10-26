@@ -515,6 +515,7 @@ print(f'lakebase_lab_{name.replace(\"-\", \"_\")}')
       BUILD_LOG="$(mktemp -t lakebase-frontend-build.XXXXXX)"
       if (cd "$FRONTEND_DIR" \
             && npm install --no-audit --no-fund \
+                 --replace-registry-host=always \
                  --fetch-timeout=60000 --fetch-retries=2 \
             && npm run build) \
            >"$BUILD_LOG" 2>&1 \
